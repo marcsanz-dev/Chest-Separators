@@ -77,6 +77,7 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
             if (this.focusedSlot != null) {
                 SeparatorPosition pos = getClosestPosition(this.focusedSlot, (int)mouseX, (int)mouseY);
                 if (pos != null) {
+                    EditorSession.getInstance().setDragAxis(pos);
                     // --- CAMBIO CLAVE: Quitamos el rojo y usamos el color de la sesión ---
                     int selectedColor = EditorSession.getInstance().getSelectedColor();
                     SeparatorData data = new SeparatorData(pos, selectedColor);
@@ -223,5 +224,41 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
             // BOTTOM: Ajustamos para que coincida con el borde inferior real
             case BOTTOM -> context.fill(sx - 1, sy + 16, sx + 16 + 1, sy + 16 + t, color);
         }
+    }
+
+    // --- 5. PINTADO POR ARRASTRE (CORREGIDO PARA 1.21.11) ---
+    @Override
+    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
+        double mouseX = click.x();
+        double mouseY = click.y();
+        int button = click.button();
+
+        if (this.handler instanceof GenericContainerScreenHandler && EditorSession.getInstance().isActive() && button == 0) {
+            if (this.focusedSlot != null) {
+                SeparatorPosition pos = getClosestPosition(this.focusedSlot, (int)mouseX, (int)mouseY);
+
+                // FILTRO: Solo permite 'pos' si coincide con el eje bloqueado en el primer clic
+                if (pos != null && EditorSession.getInstance().isPosAllowed(pos)) {
+                    int currentColor = EditorSession.getInstance().getSelectedColor();
+                    SeparatorData data = new SeparatorData(pos, currentColor);
+
+                    Set<SeparatorData> currentSeparators = ConfigManager.getInstance().getSlotSeparators(this.currentContainerId, this.focusedSlot.id);
+
+                    // Evitamos el parpadeo: Solo añadimos si no existe
+                    if (!currentSeparators.contains(data)) {
+                        ConfigManager.getInstance().toggleSeparator(this.currentContainerId, this.focusedSlot.id, data);
+                    }
+                }
+            }
+            return true;
+        }
+        return super.mouseDragged(click, offsetX, offsetY);
+    }
+
+    @Override
+    public boolean mouseReleased(Click click) {
+        // Al soltar el ratón, permitimos que el siguiente clic elija un eje nuevo
+        EditorSession.getInstance().setDragAxis(null);
+        return super.mouseReleased(click);
     }
 }

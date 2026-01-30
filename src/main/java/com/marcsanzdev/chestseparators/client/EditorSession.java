@@ -1,7 +1,10 @@
 package com.marcsanzdev.chestseparators.client;
 
+import com.marcsanzdev.chestseparators.core.SeparatorPosition;
+
 public class EditorSession {
     private static final EditorSession INSTANCE = new EditorSession();
+    private SeparatorPosition dragAxis = null;
 
     private boolean active = false;
     private int selectedColorIndex = 0; // Por defecto el primero (Blanco)
@@ -48,5 +51,26 @@ public class EditorSession {
 
     public int getSelectedColorIndex() {
         return selectedColorIndex;
+    }
+
+    public void setDragAxis(SeparatorPosition pos) {
+        if (pos == null) {
+            this.dragAxis = null;
+            return;
+        }
+        // Si el primer clic es arriba/abajo, estamos haciendo una línea HORIZONTAL
+        if (pos == SeparatorPosition.TOP || pos == SeparatorPosition.BOTTOM) {
+            this.dragAxis = SeparatorPosition.TOP;
+        } else {
+            this.dragAxis = SeparatorPosition.LEFT;
+        }
+    }
+
+    public boolean isPosAllowed(SeparatorPosition currentPos) {
+        if (dragAxis == null) return true;
+        if (dragAxis == SeparatorPosition.TOP || dragAxis == SeparatorPosition.BOTTOM) {
+            return currentPos == SeparatorPosition.TOP || currentPos == SeparatorPosition.BOTTOM;
+        }
+        return currentPos == SeparatorPosition.LEFT || currentPos == SeparatorPosition.RIGHT;
     }
 }
