@@ -2,9 +2,9 @@ package com.marcsanzdev.chestseparators.mixin.client;
 
 import com.marcsanzdev.chestseparators.client.EditorSession;
 import com.marcsanzdev.chestseparators.config.ConfigManager;
+import com.marcsanzdev.chestseparators.core.ContainerIdentifier;
 import com.marcsanzdev.chestseparators.core.SeparatorData;
 import com.marcsanzdev.chestseparators.core.SeparatorPosition;
-import com.mojang.blaze3d.systems.RenderSystem; // <--- NUEVO IMPORT VITAL
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -27,14 +27,13 @@ import java.util.Set;
 @Mixin(HandledScreen.class)
 public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Screen {
 
+    @Unique
+    private String currentContainerId;
     @Shadow protected int x;
     @Shadow protected int y;
     @Shadow protected int backgroundWidth;
     @Shadow protected T handler;
     @Shadow protected Slot focusedSlot;
-
-    // ID Temporal
-    private static final String TEMP_CHEST_ID = "chest_v2_debug";
 
     private static final int PALETTE_BOX_SIZE = 12;
     private static final int PALETTE_X_OFFSET = -35;
@@ -46,6 +45,8 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
     @Inject(method = "init", at = @At("TAIL"))
     private void addEditorButton(CallbackInfo ci) {
         if (this.handler instanceof GenericContainerScreenHandler) {
+            // Capturamos la ID real justo al abrir el cofre
+            this.currentContainerId = ContainerIdentifier.getIdFromCurrentTarget();
             int buttonX = this.x + this.backgroundWidth - 20;
             int buttonY = this.y - 18;
 
@@ -80,7 +81,7 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
                     int selectedColor = EditorSession.getInstance().getSelectedColor();
                     SeparatorData data = new SeparatorData(pos, selectedColor);
 
-                    ConfigManager.getInstance().toggleSeparator(TEMP_CHEST_ID, this.focusedSlot.id, data);
+                    ConfigManager.getInstance().toggleSeparator(this.currentContainerId, this.focusedSlot.id, data);
                     info.setReturnValue(true);
                 }
             }
@@ -151,7 +152,7 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
 
         // A) DIBUJAR LÍNEAS GUARDADAS
         for (Slot slot : this.handler.slots) {
-            Set<SeparatorData> separators = ConfigManager.getInstance().getSlotSeparators(TEMP_CHEST_ID, slot.id);
+            Set<SeparatorData> separators = ConfigManager.getInstance().getSlotSeparators(this.currentContainerId, slot.id);
             if (!separators.isEmpty()) {
                 for (SeparatorData data : separators) {
                     drawSeparatorLine(context, slot, data.position(), data.colorHex(), 1);
