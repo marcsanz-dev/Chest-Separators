@@ -82,44 +82,78 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
                     int selectedColor = EditorSession.getInstance().getSelectedColor();
                     SeparatorData data = new SeparatorData(pos, selectedColor);
 
-                    ConfigManager.getInstance().toggleSeparator(this.currentContainerId, this.focusedSlot.id, data);
+                    if (EditorSession.getInstance().isEraserMode()) {
+                        // Si estamos en modo goma, borramos el separador si existe
+                        ConfigManager.getInstance().getSlotSeparators(this.currentContainerId, this.focusedSlot.id).remove(data);
+                        ConfigManager.getInstance().save();
+                    } else {
+                        // Si no, comportamiento normal (añadir/quitar)
+                        ConfigManager.getInstance().toggleSeparator(this.currentContainerId, this.focusedSlot.id, data);
+                    }
                     info.setReturnValue(true);
                 }
             }
         }
     }
 
-    // --- 3. DIBUJO DE LA PALETA (CORREGIDO POSICIÓN IZQUIERDA) ---
     @Unique
     private void drawPalette(DrawContext context, int mouseX, int mouseY) {
-        // Ahora restamos el offset a la izquierda (this.x + PALETTE_X_OFFSET)
         int startX = this.x + PALETTE_X_OFFSET;
         int startY = this.y + 10;
-
         int[] colors = EditorSession.PALETTE;
 
+        // 1. DIBUJAR LOS 16 COLORES (8 filas x 2 columnas)
         for (int i = 0; i < colors.length; i++) {
             int col = i % 2;
             int row = i / 2;
-
             int bx = startX + (col * (PALETTE_BOX_SIZE + 2));
             int by = startY + (row * (PALETTE_BOX_SIZE + 2));
 
+            // Cuadrado de color
             context.fill(bx, by, bx + PALETTE_BOX_SIZE, by + PALETTE_BOX_SIZE, colors[i] | 0xFF000000);
 
+            // Borde de selección o hover
             int borderColor = 0;
-            if (i == EditorSession.getInstance().getSelectedColorIndex()) {
-                borderColor = 0xFFFFFFFF; // Blanco para el seleccionado
+            if (!EditorSession.getInstance().isEraserMode() && i == EditorSession.getInstance().getSelectedColorIndex()) {
+                borderColor = 0xFFFFFFFF; // Blanco si este color está seleccionado
             } else if (mouseX >= bx && mouseX < bx + PALETTE_BOX_SIZE && mouseY >= by && mouseY < by + PALETTE_BOX_SIZE) {
-                borderColor = 0xFFAAAAAA; // Gris para el hover
+                borderColor = 0xFFAAAAAA; // Gris hover
             }
 
             if (borderColor != 0) {
-                context.fill(bx - 1, by - 1, bx + PALETTE_BOX_SIZE + 1, by, borderColor);
-                context.fill(bx - 1, by + PALETTE_BOX_SIZE, bx + PALETTE_BOX_SIZE + 1, by + PALETTE_BOX_SIZE + 1, borderColor);
-                context.fill(bx - 1, by, bx, by + PALETTE_BOX_SIZE, borderColor);
-                context.fill(bx + PALETTE_BOX_SIZE, by, bx + PALETTE_BOX_SIZE + 1, by + PALETTE_BOX_SIZE, borderColor);
+                drawSimpleBorder(context, bx, by, borderColor);
             }
+        }
+
+        // 2. DIBUJAR HERRAMIENTAS (Debajo de los colores)
+        int toolY = startY + (8 * (PALETTE_BOX_SIZE + 2)) + 5;
+
+        // GOMA (Rosa)
+        drawToolButton(context, mouseX, mouseY, startX, toolY, 0xFFFFAFCD, EditorSession.getInstance().isEraserMode());
+
+        // CLEAR (Rojo con una 'X' blanca dibujada con fill)
+        int binX = startX + PALETTE_BOX_SIZE + 2;
+        drawToolButton(context, mouseX, mouseY, binX, toolY, 0xFFFF4444, false);
+        context.fill(binX + 3, toolY + 3, binX + 9, toolY + 4, 0xFFFFFFFF); // Icono minimalista de papelera
+    }
+
+    @Unique
+    private void drawSimpleBorder(DrawContext context, int bx, int by, int color) {
+        context.fill(bx - 1, by - 1, bx + PALETTE_BOX_SIZE + 1, by, color);
+        context.fill(bx - 1, by + PALETTE_BOX_SIZE, bx + PALETTE_BOX_SIZE + 1, by + PALETTE_BOX_SIZE + 1, color);
+        context.fill(bx - 1, by, bx, by + PALETTE_BOX_SIZE, color);
+        context.fill(bx + PALETTE_BOX_SIZE, by, bx + PALETTE_BOX_SIZE + 1, by + PALETTE_BOX_SIZE, color);
+    }
+
+    @Unique
+    private void drawToolButton(DrawContext context, int mx, int my, int bx, int by, int color, boolean active) {
+        context.fill(bx, by, bx + PALETTE_BOX_SIZE, by + PALETTE_BOX_SIZE, color);
+        if (active) {
+            // Borde blanco si está seleccionado
+            context.fill(bx - 1, by - 1, bx + PALETTE_BOX_SIZE + 1, by, 0xFFFFFFFF);
+            context.fill(bx - 1, by + PALETTE_BOX_SIZE, bx + PALETTE_BOX_SIZE + 1, by + PALETTE_BOX_SIZE + 1, 0xFFFFFFFF);
+            context.fill(bx - 1, by, bx, by + PALETTE_BOX_SIZE, 0xFFFFFFFF);
+            context.fill(bx + PALETTE_BOX_SIZE, by, bx + PALETTE_BOX_SIZE + 1, by + PALETTE_BOX_SIZE, 0xFFFFFFFF);
         }
     }
 
@@ -137,10 +171,36 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
 
             if (mouseX >= bx && mouseX < bx + PALETTE_BOX_SIZE && mouseY >= by && mouseY < by + PALETTE_BOX_SIZE) {
                 EditorSession.getInstance().setSelectedColorIndex(i);
+                EditorSession.getInstance().setEraserMode(false); // Al elegir color, quitamos la goma
                 return true;
             }
         }
+
+        // Check de Herramientas
+        int toolY = startY + (8 * (PALETTE_BOX_SIZE + 2)) + 5;
+
+        // Clic en GOMA
+        if (isHovering(mouseX, mouseY, startX, toolY)) {
+            EditorSession.getInstance().setEraserMode(!EditorSession.getInstance().isEraserMode());
+            return true;
+        }
+
+        // Clic en CLEAR (Papelera)
+        if (isHovering(mouseX, mouseY, startX + PALETTE_BOX_SIZE + 2, toolY)) {
+            // Borramos TODOS los slots de esta ID de cofre
+            for (Slot slot : this.handler.slots) {
+                ConfigManager.getInstance().getSlotSeparators(this.currentContainerId, slot.id).clear();
+            }
+            ConfigManager.getInstance().save();
+            return true;
+        }
+
         return false;
+    }
+
+    @Unique
+    private boolean isHovering(double mx, double my, int bx, int by) {
+        return mx >= bx && mx < bx + PALETTE_BOX_SIZE && my >= by && my < by + PALETTE_BOX_SIZE;
     }
 
     // --- RENDERIZADO (FIX MATRICES Y Z-INDEX) ---
@@ -237,16 +297,31 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
             if (this.focusedSlot != null) {
                 SeparatorPosition pos = getClosestPosition(this.focusedSlot, (int)mouseX, (int)mouseY);
 
-                // FILTRO: Solo permite 'pos' si coincide con el eje bloqueado en el primer clic
+                // Filtro de eje (mantiene el trazo recto)
                 if (pos != null && EditorSession.getInstance().isPosAllowed(pos)) {
+
+                    // Creamos el objeto de datos para buscarlo o borrarlo
+                    // (El color da igual para la goma, pero lo necesitamos para identificar la posición)
                     int currentColor = EditorSession.getInstance().getSelectedColor();
                     SeparatorData data = new SeparatorData(pos, currentColor);
 
-                    Set<SeparatorData> currentSeparators = ConfigManager.getInstance().getSlotSeparators(this.currentContainerId, this.focusedSlot.id);
+                    if (EditorSession.getInstance().isEraserMode()) {
+                        // --- MODO GOMA ARRASTRABLE ---
+                        // Obtenemos los separadores actuales del slot
+                        Set<SeparatorData> currentSeparators = ConfigManager.getInstance().getSlotSeparators(this.currentContainerId, this.focusedSlot.id);
 
-                    // Evitamos el parpadeo: Solo añadimos si no existe
-                    if (!currentSeparators.contains(data)) {
-                        ConfigManager.getInstance().toggleSeparator(this.currentContainerId, this.focusedSlot.id, data);
+                        // Buscamos si hay ALGÚN separador en esa posición (sin importar el color) y lo quitamos
+                        boolean removed = currentSeparators.removeIf(s -> s.position() == pos);
+
+                        if (removed) {
+                            ConfigManager.getInstance().save();
+                        }
+                    } else {
+                        // --- MODO PINTAR ARRASTRABLE ---
+                        Set<SeparatorData> currentSeparators = ConfigManager.getInstance().getSlotSeparators(this.currentContainerId, this.focusedSlot.id);
+                        if (!currentSeparators.contains(data)) {
+                            ConfigManager.getInstance().toggleSeparator(this.currentContainerId, this.focusedSlot.id, data);
+                        }
                     }
                 }
             }

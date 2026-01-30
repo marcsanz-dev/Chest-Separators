@@ -5,6 +5,7 @@ import com.marcsanzdev.chestseparators.core.SeparatorPosition;
 public class EditorSession {
     private static final EditorSession INSTANCE = new EditorSession();
     private SeparatorPosition dragAxis = null;
+    private boolean eraserMode = false;
 
     private boolean active = false;
     private int selectedColorIndex = 0; // Por defecto el primero (Blanco)
@@ -46,6 +47,7 @@ public class EditorSession {
     public void setSelectedColorIndex(int index) {
         if (index >= 0 && index < PALETTE.length) {
             this.selectedColorIndex = index;
+            this.eraserMode = false; // Si eliges color, dejas de usar la goma
         }
     }
 
@@ -72,5 +74,11 @@ public class EditorSession {
             return currentPos == SeparatorPosition.TOP || currentPos == SeparatorPosition.BOTTOM;
         }
         return currentPos == SeparatorPosition.LEFT || currentPos == SeparatorPosition.RIGHT;
+    }
+
+    public boolean isEraserMode() { return eraserMode; }
+
+    public void setEraserMode(boolean eraserMode) {
+        this.eraserMode = eraserMode;
     }
 }
