@@ -36,6 +36,9 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
     // ID Temporal
     private static final String TEMP_CHEST_ID = "chest_v2_debug";
 
+    private static final int PALETTE_BOX_SIZE = 12;
+    private static final int PALETTE_X_OFFSET = -35;
+
     protected ContainerScreenMixin(Text title) {
         super(title);
     }
@@ -63,20 +66,79 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
 
         if (this.handler instanceof GenericContainerScreenHandler && EditorSession.getInstance().isActive() && button == 0) {
 
+            // A) Primero revisamos si el clic fue en la paleta
+            if (handlePaletteClick(mouseX, mouseY)) {
+                info.setReturnValue(true);
+                return;
+            }
+
+            // B) Si no, revisamos los slots
             if (this.focusedSlot != null) {
                 SeparatorPosition pos = getClosestPosition(this.focusedSlot, (int)mouseX, (int)mouseY);
-
                 if (pos != null) {
-                    // ROJO OPACO para debug
-                    int debugColor = 0xFFFF0000;
-                    SeparatorData data = new SeparatorData(pos, debugColor);
+                    // --- CAMBIO CLAVE: Quitamos el rojo y usamos el color de la sesión ---
+                    int selectedColor = EditorSession.getInstance().getSelectedColor();
+                    SeparatorData data = new SeparatorData(pos, selectedColor);
 
                     ConfigManager.getInstance().toggleSeparator(TEMP_CHEST_ID, this.focusedSlot.id, data);
-                    System.out.println("DEBUG: Guardado separador en slot " + this.focusedSlot.id);
                     info.setReturnValue(true);
                 }
             }
         }
+    }
+
+    // --- 3. DIBUJO DE LA PALETA (CORREGIDO POSICIÓN IZQUIERDA) ---
+    @Unique
+    private void drawPalette(DrawContext context, int mouseX, int mouseY) {
+        // Ahora restamos el offset a la izquierda (this.x + PALETTE_X_OFFSET)
+        int startX = this.x + PALETTE_X_OFFSET;
+        int startY = this.y + 10;
+
+        int[] colors = EditorSession.PALETTE;
+
+        for (int i = 0; i < colors.length; i++) {
+            int col = i % 2;
+            int row = i / 2;
+
+            int bx = startX + (col * (PALETTE_BOX_SIZE + 2));
+            int by = startY + (row * (PALETTE_BOX_SIZE + 2));
+
+            context.fill(bx, by, bx + PALETTE_BOX_SIZE, by + PALETTE_BOX_SIZE, colors[i] | 0xFF000000);
+
+            int borderColor = 0;
+            if (i == EditorSession.getInstance().getSelectedColorIndex()) {
+                borderColor = 0xFFFFFFFF; // Blanco para el seleccionado
+            } else if (mouseX >= bx && mouseX < bx + PALETTE_BOX_SIZE && mouseY >= by && mouseY < by + PALETTE_BOX_SIZE) {
+                borderColor = 0xFFAAAAAA; // Gris para el hover
+            }
+
+            if (borderColor != 0) {
+                context.fill(bx - 1, by - 1, bx + PALETTE_BOX_SIZE + 1, by, borderColor);
+                context.fill(bx - 1, by + PALETTE_BOX_SIZE, bx + PALETTE_BOX_SIZE + 1, by + PALETTE_BOX_SIZE + 1, borderColor);
+                context.fill(bx - 1, by, bx, by + PALETTE_BOX_SIZE, borderColor);
+                context.fill(bx + PALETTE_BOX_SIZE, by, bx + PALETTE_BOX_SIZE + 1, by + PALETTE_BOX_SIZE, borderColor);
+            }
+        }
+    }
+
+    // --- 4. CLIC EN PALETA (CORREGIDO POSICIÓN IZQUIERDA) ---
+    @Unique
+    private boolean handlePaletteClick(double mouseX, double mouseY) {
+        int startX = this.x + PALETTE_X_OFFSET;
+        int startY = this.y + 10;
+
+        for (int i = 0; i < EditorSession.PALETTE.length; i++) {
+            int col = i % 2;
+            int row = i / 2;
+            int bx = startX + (col * (PALETTE_BOX_SIZE + 2));
+            int by = startY + (row * (PALETTE_BOX_SIZE + 2));
+
+            if (mouseX >= bx && mouseX < bx + PALETTE_BOX_SIZE && mouseY >= by && mouseY < by + PALETTE_BOX_SIZE) {
+                EditorSession.getInstance().setSelectedColorIndex(i);
+                return true;
+            }
+        }
+        return false;
     }
 
     // --- RENDERIZADO (FIX MATRICES Y Z-INDEX) ---
@@ -92,7 +154,7 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
             Set<SeparatorData> separators = ConfigManager.getInstance().getSlotSeparators(TEMP_CHEST_ID, slot.id);
             if (!separators.isEmpty()) {
                 for (SeparatorData data : separators) {
-                    drawSeparatorLine(context, slot, data.position(), data.colorHex(), 3);
+                    drawSeparatorLine(context, slot, data.position(), data.colorHex(), 1);
                 }
             }
         }
@@ -102,14 +164,17 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
             // Texto de aviso (Z=300 para que flote encima de todo)
             context.drawText(this.textRenderer, "MODO EDITOR", this.x, this.y - 30, 0xFF5555, true);
 
+            drawPalette(context, mouseX, mouseY);
+
             if (this.focusedSlot != null) {
                 SeparatorPosition pos = getClosestPosition(this.focusedSlot, mouseX, mouseY);
                 if (pos != null) {
-                    drawSeparatorLine(context, this.focusedSlot, pos, 0xAAFFFF00, 3);
+                    drawSeparatorLine(context, this.focusedSlot, pos, 0xAAFFFF00, 1);
                 }
             }
         }
     }
+
 
     @Inject(method = "close", at = @At("HEAD"))
     private void onScreenClose(CallbackInfo ci) {
@@ -141,12 +206,21 @@ public abstract class ContainerScreenMixin<T extends ScreenHandler> extends Scre
         int sx = this.x + slot.x;
         int sy = this.y + slot.y;
 
-        // NOTA: Hemos quitado la variable zLevel y el argumento extra en fill.
+        // Grosor forzado a 1 píxel según tu petición
+        int t = 1;
+
         switch (pos) {
-            case LEFT -> context.fill(sx - 1, sy, sx - 1 + thickness, sy + 16, color);
-            case RIGHT -> context.fill(sx + 16 - 1, sy, sx + 16 - 1 + thickness, sy + 16, color);
-            case TOP -> context.fill(sx, sy - 1, sx + 16, sy - 1 + thickness, color);
-            case BOTTOM -> context.fill(sx, sy + 16 - 1, sx + 16, sy + 16 - 1 + thickness, color);
+            // LEFT: Desde la esquina superior hasta la inferior
+            case LEFT -> context.fill(sx - 1, sy - 1, sx - 1 + t, sy + 16 + 1, color);
+
+            // RIGHT: Ajustamos para que no se vea más grande (usamos sx + 17)
+            case RIGHT -> context.fill(sx + 16, sy - 1, sx + 16 + t, sy + 16 + 1, color);
+
+            // TOP: Desde el borde izquierdo hasta el derecho
+            case TOP -> context.fill(sx - 1, sy - 1, sx + 16 + 1, sy - 1 + t, color);
+
+            // BOTTOM: Ajustamos para que coincida con el borde inferior real
+            case BOTTOM -> context.fill(sx - 1, sy + 16, sx + 16 + 1, sy + 16 + t, color);
         }
     }
 }
