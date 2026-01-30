@@ -3,6 +3,7 @@ package com.marcsanzdev.chestseparators.config;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.marcsanzdev.chestseparators.core.SeparatorData;
 import net.fabricmc.loader.api.FabricLoader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -19,17 +20,17 @@ import java.util.Set;
 public class ConfigManager {
 
     public static final Logger LOGGER = LoggerFactory.getLogger("ChestSeparators");
-    // Ruta: .minecraft/config/chestseparators_data.json
-    private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("chestseparators_data.json");
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final Path CONFIG_PATH = FabricLoader.getInstance().getConfigDir().resolve("chestseparators_data_v2.json"); // Cambiamos nombre por si acaso
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().enableComplexMapKeySerialization().create();
 
-    // Memoria: "mundo@x,y,z" -> [0, 4, 26] (Indices de slots con separador)
-    private final Map<String, Set<Integer>> separatorData;
+    // ESTRUCTURA NUEVA Y COMPLEJA:
+    // String (ID Cofre) -> Map<Integer (Slot ID), Set<SeparatorData> (Lista de líneas en ese slot)>
+    private final Map<String, Map<Integer, Set<SeparatorData>>> masterData;
 
     private static final ConfigManager INSTANCE = new ConfigManager();
 
     private ConfigManager() {
-        this.separatorData = new HashMap<>();
+        this.masterData = new HashMap<>();
         load();
     }
 
@@ -38,59 +39,63 @@ public class ConfigManager {
     }
 
     public void load() {
-        // Si no existe el archivo, lo creamos vacío
         if (!Files.exists(CONFIG_PATH)) {
             save();
             return;
         }
-
         try (Reader reader = Files.newBufferedReader(CONFIG_PATH)) {
-            // Leemos el JSON y lo convertimos al Mapa
-            Type type = new TypeToken<Map<String, Set<Integer>>>(){}.getType();
-            Map<String, Set<Integer>> loaded = GSON.fromJson(reader, type);
+            // Definimos el tipo complejo para GSON
+            Type type = new TypeToken<Map<String, Map<Integer, Set<SeparatorData>>>>(){}.getType();
+            Map<String, Map<Integer, Set<SeparatorData>>> loaded = GSON.fromJson(reader, type);
 
             if (loaded != null) {
-                this.separatorData.clear();
-                this.separatorData.putAll(loaded);
-                LOGGER.info("ChestSeparators: Cargados datos de " + separatorData.size() + " contenedores.");
+                this.masterData.clear();
+                this.masterData.putAll(loaded);
             }
+            LOGGER.info("ChestSeparators V2 cargado.");
         } catch (IOException e) {
-            LOGGER.error("ChestSeparators: Error cargando config", e);
+            LOGGER.error("Error cargando config V2", e);
         }
     }
 
     public void save() {
         try (Writer writer = Files.newBufferedWriter(CONFIG_PATH)) {
-            GSON.toJson(this.separatorData, writer);
+            GSON.toJson(this.masterData, writer);
         } catch (IOException e) {
-            LOGGER.error("ChestSeparators: Error guardando config", e);
+            LOGGER.error("Error guardando config V2", e);
         }
     }
 
-    // --- Métodos de Lógica (API Interna) ---
+    // --- NUEVA API INTERNA ---
 
     /**
-     * Obtiene los slots separados para un contenedor específico.
+     * Obtiene todos los separadores de un slot específico en un cofre específico.
+     * Nunca retorna null, siempre un Set (vacío o con datos).
      */
-    public Set<Integer> getSeparators(String uniqueId) {
-        return separatorData.computeIfAbsent(uniqueId, k -> new HashSet<>());
+    public Set<SeparatorData> getSlotSeparators(String chestId, int slotId) {
+        return masterData
+                .computeIfAbsent(chestId, k -> new HashMap<>())
+                .computeIfAbsent(slotId, k -> new HashSet<>());
     }
 
     /**
-     * Añade o quita un separador en un slot y guarda inmediatamente.
+     * Añade o quita un separador específico.
      */
-    public void toggleSeparator(String uniqueId, int slotIndex) {
-        Set<Integer> slots = getSeparators(uniqueId);
+    public void toggleSeparator(String chestId, int slotId, SeparatorData data) {
+        Set<SeparatorData> slotData = getSlotSeparators(chestId, slotId);
 
-        if (slots.contains(slotIndex)) {
-            slots.remove(slotIndex); // Si existe, lo borra
+        if (slotData.contains(data)) {
+            slotData.remove(data); // Si existe (misma posición), lo borra
         } else {
-            slots.add(slotIndex);    // Si no existe, lo añade
+            slotData.add(data);    // Si no, lo añade
         }
 
-        // Limpieza: si un cofre se queda vacío de separadores, borramos la entrada para ahorrar espacio en disco
-        if (slots.isEmpty()) {
-            separatorData.remove(uniqueId);
+        // Limpieza profunda para no guardar basura en el JSON
+        if (slotData.isEmpty()) {
+            masterData.get(chestId).remove(slotId);
+        }
+        if (masterData.get(chestId).isEmpty()) {
+            masterData.remove(chestId);
         }
 
         save();
