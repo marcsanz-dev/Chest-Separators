@@ -3,6 +3,7 @@
 	"package": "com.marcsanzdev.chestseparators.mixin.client",
 	"compatibilityLevel": "JAVA_21",
 	"client": [
+		"ContainerScreenMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
